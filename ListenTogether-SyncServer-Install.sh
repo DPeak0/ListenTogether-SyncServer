@@ -8,7 +8,6 @@ OUTPUT_PATH="${SCRIPT_DIR}/docker-compose.generated.yml"
 ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:latest"
 GITHUB_SYNC_IMAGE="ghcr.io/dpeak0/listentogether-syncserver:latest"
 
-DEFAULT_SYNC_IMAGE="${ALIYUN_SYNC_IMAGE}"
 DEFAULT_CONTAINER_NAME="listentogether-syncserver"
 DEFAULT_BIND_ADDRESS="127.0.0.1"
 DEFAULT_HOST_PORT="8787"
@@ -23,7 +22,7 @@ DEFAULT_ROOM_OPS_RATE_LIMIT_WINDOW_MS="10000"
 DEFAULT_MAX_MESSAGE_BYTES="65536"
 DEFAULT_CLEANUP_INTERVAL_MS="1000"
 
-SYNC_IMAGE="${DEFAULT_SYNC_IMAGE}"
+SYNC_IMAGE="${ALIYUN_SYNC_IMAGE}"
 CONTAINER_NAME="${DEFAULT_CONTAINER_NAME}"
 BIND_ADDRESS="${DEFAULT_BIND_ADDRESS}"
 HOST_PORT="${DEFAULT_HOST_PORT}"
@@ -111,9 +110,19 @@ select_image_source() {
 
 load_interactive_values() {
   select_image_source
+
   echo
   while true; do
-    HOST_PORT="$(prompt_value "请设置容器端口" "${DEFAULT_HOST_PORT}")"
+    BIND_ADDRESS="$(prompt_value "请设置宿主机绑定地址" "${DEFAULT_BIND_ADDRESS}")"
+    if [[ -n "${BIND_ADDRESS}" ]]; then
+      break
+    fi
+    echo "绑定地址不能为空。"
+  done
+
+  echo
+  while true; do
+    HOST_PORT="$(prompt_value "请设置宿主机映射端口" "${DEFAULT_HOST_PORT}")"
     if validate_port "${HOST_PORT}"; then
       break
     fi

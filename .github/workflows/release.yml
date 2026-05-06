@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'release-v*'
 
 permissions:
   contents: write
@@ -15,4 +15,6 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          files: |
+            ListenTogether-SyncServer-Install.sh
           generate_release_notes: true
