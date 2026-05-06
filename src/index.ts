@@ -21,7 +21,24 @@ export function createAppServer(config: AppServerConfig): RunningServer {
       return syncServer.cleanupExpiredRooms()
     },
   })
-  const httpServer = http.createServer()
+  const httpServer = http.createServer((request, response) => {
+    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+    if (url.pathname === '/' || url.pathname === '/ws') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({
+        service: 'ListenTogether-SyncServer',
+        status: 'ok',
+        websocket: {
+          address: `ws://${request.headers.host ?? 'localhost'}/`,
+          legacyPath: '/ws',
+        },
+      }))
+      return
+    }
+
+    response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+    response.end('Not Found')
+  })
   const webSocketServer = new WebSocketServer({
     noServer: true,
     maxPayload: config.maxMessageBytes,
@@ -31,7 +48,7 @@ export function createAppServer(config: AppServerConfig): RunningServer {
 
   httpServer.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
-    if (url.pathname !== '/ws') {
+    if (url.pathname !== '/' && url.pathname !== '/ws') {
       socket.destroy()
       return
     }

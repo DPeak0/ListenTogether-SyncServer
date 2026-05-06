@@ -49,6 +49,44 @@ describe('server runtime', () => {
     })
   })
 
+  it('accepts websocket clients on the root path', async () => {
+    const server = createAppServer({
+      port: 0,
+      host: '127.0.0.1',
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+      now: () => 1000,
+    })
+    servers.push(server)
+    await server.listen()
+
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      throw new Error('expected tcp address')
+    }
+
+    const messages = await connectAndExchange({
+      url: `ws://127.0.0.1:${address.port}/`,
+      outgoing: {
+        type: 'createRoom',
+        requestId: 'req-2',
+        nickname: 'Alice',
+        deviceId: 'device-a',
+        roomName: 'Alice Room',
+      },
+      untilType: 'roomCreated',
+    })
+
+    expect(messages.find((message) => message.type === 'roomCreated')).toMatchObject({
+      type: 'roomCreated',
+      requestId: 'req-2',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+    })
+  })
+
   it('rejects websocket payloads larger than the configured limit', async () => {
     const server = createAppServer({
       port: 0,

@@ -201,8 +201,9 @@ confirm_and_deploy() {
   docker ps --filter "name=^${CONTAINER_NAME}$"
   echo
   echo "部署完成。"
-  echo "本地 WebSocket 地址：ws://${BIND_ADDRESS}:${HOST_PORT}/ws"
-  echo "如果需要公网访问，建议使用 Nginx 将 /ws 反代到这个宿主机端口。"
+  echo "请在扩展设置页的“服务端地址”中填写：${BIND_ADDRESS}:${HOST_PORT}"
+  echo "也可以填写完整地址：ws://${BIND_ADDRESS}:${HOST_PORT}"
+  echo "服务端同时兼容根路径 / 和旧路径 /ws，无需手动追加。"
 }
 
 main() {
