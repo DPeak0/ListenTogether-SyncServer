@@ -5,13 +5,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_PATH="${SCRIPT_DIR}/docker-compose.generated.yml"
 
-DEFAULT_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:latest"
+ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:latest"
+GITHUB_SYNC_IMAGE="ghcr.io/dpeak0/listentogether-syncserver:latest"
+
+DEFAULT_SYNC_IMAGE="${ALIYUN_SYNC_IMAGE}"
 DEFAULT_CONTAINER_NAME="listentogether-syncserver"
 DEFAULT_BIND_ADDRESS="127.0.0.1"
 DEFAULT_HOST_PORT="8787"
 DEFAULT_ROOM_EMPTY_TTL_MS="1800000"
 DEFAULT_MEMBER_HEARTBEAT_TIMEOUT_MS="5000"
-DEFAULT_MAX_ROOM_MEMBERS="8"
+DEFAULT_MAX_ROOM_MEMBERS="10"
 DEFAULT_MAX_QUEUE_ITEMS="500"
 DEFAULT_MAX_COMMANDS_PER_WINDOW="20"
 DEFAULT_RATE_LIMIT_WINDOW_MS="1000"
@@ -36,30 +39,24 @@ MAX_MESSAGE_BYTES="${DEFAULT_MAX_MESSAGE_BYTES}"
 CLEANUP_INTERVAL_MS="${DEFAULT_CLEANUP_INTERVAL_MS}"
 
 print_header() {
-  echo "========================================"
-  echo " ListenTogether SyncServer 安装器"
-  echo "========================================"
-  echo
-  echo "说明:"
-  echo "- 容器内部端口固定为 8787。"
-  echo "- 这里配置的是宿主机映射端口，不是修改容器内部端口。"
-  echo "- 默认绑定地址是 127.0.0.1，适合后续交给 Nginx 反代。"
-  echo
+  echo "=============================================="
+  echo " ListenTogether SyncServer 一键安装脚本"
+  echo "=============================================="
 }
 
 require_command() {
   local command_name="$1"
   local install_hint="$2"
   if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "缺少命令: ${command_name}"
-    echo "请先安装: ${install_hint}"
+    echo "缺少命令：${command_name}"
+    echo "请先安装：${install_hint}"
     exit 1
   fi
 }
 
 require_docker_compose() {
   if ! docker compose version >/dev/null 2>&1; then
-    echo "缺少 Docker Compose 插件: docker compose"
+    echo "缺少 Docker Compose 插件：docker compose"
     echo "请先安装 Docker Compose v2。"
     exit 1
   fi
@@ -86,24 +83,37 @@ validate_port() {
   fi
 }
 
-validate_nonempty() {
-  local value="$1"
-  [[ -n "${value}" ]]
-}
-
 validate_positive_integer() {
   local value="$1"
   [[ "${value}" =~ ^[0-9]+$ ]] && (( value > 0 ))
 }
 
-load_interactive_values() {
-  echo "基础配置"
-  CONTAINER_NAME="$(prompt_value "Docker 容器名" "${DEFAULT_CONTAINER_NAME}")"
-  SYNC_IMAGE="$(prompt_value "Docker 镜像地址" "${DEFAULT_SYNC_IMAGE}")"
-  BIND_ADDRESS="$(prompt_value "宿主机绑定地址" "${DEFAULT_BIND_ADDRESS}")"
+select_image_source() {
+  local choice=""
+  echo "请选择 Docker 镜像源（默认选择阿里云镜像源）："
+  echo "1) 阿里云镜像源：国内网络环境"
+  echo "2) Github 镜像源：海外网络环境"
+  read -r -p "请输入 1 或 2，回车使用默认值 1: " choice
 
+  case "${choice:-1}" in
+    1)
+      SYNC_IMAGE="${ALIYUN_SYNC_IMAGE}"
+      ;;
+    2)
+      SYNC_IMAGE="${GITHUB_SYNC_IMAGE}"
+      ;;
+    *)
+      echo "输入无效，已使用默认值 1（阿里云镜像源）。"
+      SYNC_IMAGE="${ALIYUN_SYNC_IMAGE}"
+      ;;
+  esac
+}
+
+load_interactive_values() {
+  select_image_source
+  echo
   while true; do
-    HOST_PORT="$(prompt_value "宿主机映射端口" "${DEFAULT_HOST_PORT}")"
+    HOST_PORT="$(prompt_value "请设置容器端口" "${DEFAULT_HOST_PORT}")"
     if validate_port "${HOST_PORT}"; then
       break
     fi
@@ -111,47 +121,12 @@ load_interactive_values() {
   done
 
   echo
-  echo "高级参数"
-  ROOM_EMPTY_TTL_MS="$(prompt_value "空房间保留时长（毫秒）" "${DEFAULT_ROOM_EMPTY_TTL_MS}")"
-  MEMBER_HEARTBEAT_TIMEOUT_MS="$(prompt_value "成员心跳超时（毫秒）" "${DEFAULT_MEMBER_HEARTBEAT_TIMEOUT_MS}")"
-  MAX_ROOM_MEMBERS="$(prompt_value "单房间最大成员数" "${DEFAULT_MAX_ROOM_MEMBERS}")"
-  MAX_QUEUE_ITEMS="$(prompt_value "单房间最大队列长度" "${DEFAULT_MAX_QUEUE_ITEMS}")"
-  MAX_COMMANDS_PER_WINDOW="$(prompt_value "命令限流窗口内最大命令数" "${DEFAULT_MAX_COMMANDS_PER_WINDOW}")"
-  RATE_LIMIT_WINDOW_MS="$(prompt_value "命令限流窗口（毫秒）" "${DEFAULT_RATE_LIMIT_WINDOW_MS}")"
-  MAX_ROOM_OPS_PER_WINDOW="$(prompt_value "建房/加房窗口内最大操作数" "${DEFAULT_MAX_ROOM_OPS_PER_WINDOW}")"
-  ROOM_OPS_RATE_LIMIT_WINDOW_MS="$(prompt_value "建房/加房限流窗口（毫秒）" "${DEFAULT_ROOM_OPS_RATE_LIMIT_WINDOW_MS}")"
-  MAX_MESSAGE_BYTES="$(prompt_value "单条消息最大字节数" "${DEFAULT_MAX_MESSAGE_BYTES}")"
-  CLEANUP_INTERVAL_MS="$(prompt_value "清理轮询间隔（毫秒）" "${DEFAULT_CLEANUP_INTERVAL_MS}")"
-}
-
-validate_values() {
-  if ! validate_nonempty "${CONTAINER_NAME}"; then
-    echo "容器名不能为空。"
-    exit 1
-  fi
-
-  if ! validate_nonempty "${SYNC_IMAGE}"; then
-    echo "镜像地址不能为空。"
-    exit 1
-  fi
-
-  for value_name in \
-    ROOM_EMPTY_TTL_MS \
-    MEMBER_HEARTBEAT_TIMEOUT_MS \
-    MAX_ROOM_MEMBERS \
-    MAX_QUEUE_ITEMS \
-    MAX_COMMANDS_PER_WINDOW \
-    RATE_LIMIT_WINDOW_MS \
-    MAX_ROOM_OPS_PER_WINDOW \
-    ROOM_OPS_RATE_LIMIT_WINDOW_MS \
-    MAX_MESSAGE_BYTES \
-    CLEANUP_INTERVAL_MS
-  do
-    if ! validate_positive_integer "${!value_name}"; then
-      echo "参数 ${value_name} 无效: ${!value_name}"
-      echo "它必须是正整数。"
-      exit 1
+  while true; do
+    MAX_ROOM_MEMBERS="$(prompt_value "请设置房间最大人数限制" "${DEFAULT_MAX_ROOM_MEMBERS}")"
+    if validate_positive_integer "${MAX_ROOM_MEMBERS}"; then
+      break
     fi
+    echo "人数限制无效，请输入正整数。"
   done
 }
 
@@ -183,21 +158,23 @@ EOF
 
 show_summary() {
   echo
-  echo "部署摘要"
-  echo "- 镜像: ${SYNC_IMAGE}"
-  echo "- 容器名: ${CONTAINER_NAME}"
-  echo "- 宿主机绑定: ${BIND_ADDRESS}:${HOST_PORT}"
-  echo "- 容器内部端口: 8787"
-  echo "- 生成文件: ${OUTPUT_PATH}"
+  echo "部署摘要："
+  echo "- 镜像地址：${SYNC_IMAGE}"
+  echo "- 容器名：${CONTAINER_NAME}"
+  echo "- 宿主机绑定地址：${BIND_ADDRESS}"
+  echo "- 宿主机映射端口：${HOST_PORT}"
+  echo "- 容器内部端口：8787"
+  echo "- 房间最大人数限制：${MAX_ROOM_MEMBERS}"
+  echo "- 生成文件：${OUTPUT_PATH}"
   echo
 }
 
 confirm_and_deploy() {
   local answer=""
-  read -r -p "确认开始部署? [Y/n]: " answer
+  read -r -p "确认开始部署？[Y/n]: " answer
   answer="${answer:-Y}"
   if [[ ! "${answer}" =~ ^[Yy]$ ]]; then
-    echo "已取消部署。生成的 compose 文件保留在:"
+    echo "已取消部署。生成的 compose 文件保留在："
     echo "${OUTPUT_PATH}"
     exit 0
   fi
@@ -208,16 +185,15 @@ confirm_and_deploy() {
 
   echo
   echo "部署完成。"
-  echo "本地 WebSocket 地址: ws://${BIND_ADDRESS}:${HOST_PORT}/ws"
+  echo "本地 WebSocket 地址：ws://${BIND_ADDRESS}:${HOST_PORT}/ws"
   echo "如果需要公网访问，建议使用 Nginx 将 /ws 反代到这个宿主机端口。"
 }
 
 main() {
   print_header
-  require_command "docker" "Docker Engine or Docker Desktop"
+  require_command "docker" "Docker Engine 或 Docker Desktop"
   require_docker_compose
   load_interactive_values
-  validate_values
   render_compose_file
   show_summary
   confirm_and_deploy
