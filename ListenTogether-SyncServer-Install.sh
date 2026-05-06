@@ -2,9 +2,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_PATH="${SCRIPT_DIR}/docker-compose.generated.yml"
-
 ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:latest"
 GITHUB_SYNC_IMAGE="ghcr.io/dpeak0/listentogether-syncserver:latest"
 
@@ -49,14 +46,6 @@ require_command() {
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "缺少命令：${command_name}"
     echo "请先安装：${install_hint}"
-    exit 1
-  fi
-}
-
-require_docker_compose() {
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "缺少 Docker Compose 插件：docker compose"
-    echo "请先安装 Docker Compose v2。"
     exit 1
   fi
 }
@@ -139,32 +128,6 @@ load_interactive_values() {
   done
 }
 
-render_compose_file() {
-  cat > "${OUTPUT_PATH}" <<EOF
-services:
-  listentogether-syncserver:
-    image: ${SYNC_IMAGE}
-    container_name: ${CONTAINER_NAME}
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: 8787
-      ROOM_EMPTY_TTL_MS: ${ROOM_EMPTY_TTL_MS}
-      MEMBER_HEARTBEAT_TIMEOUT_MS: ${MEMBER_HEARTBEAT_TIMEOUT_MS}
-      MAX_ROOM_MEMBERS: ${MAX_ROOM_MEMBERS}
-      MAX_QUEUE_ITEMS: ${MAX_QUEUE_ITEMS}
-      MAX_COMMANDS_PER_WINDOW: ${MAX_COMMANDS_PER_WINDOW}
-      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS}
-      MAX_ROOM_OPS_PER_WINDOW: ${MAX_ROOM_OPS_PER_WINDOW}
-      ROOM_OPS_RATE_LIMIT_WINDOW_MS: ${ROOM_OPS_RATE_LIMIT_WINDOW_MS}
-      MAX_MESSAGE_BYTES: ${MAX_MESSAGE_BYTES}
-      CLEANUP_INTERVAL_MS: ${CLEANUP_INTERVAL_MS}
-    ports:
-      - "${BIND_ADDRESS}:${HOST_PORT}:8787"
-EOF
-}
-
 show_summary() {
   echo
   echo "部署摘要："
@@ -174,8 +137,51 @@ show_summary() {
   echo "- 宿主机映射端口：${HOST_PORT}"
   echo "- 容器内部端口：8787"
   echo "- 房间最大人数限制：${MAX_ROOM_MEMBERS}"
-  echo "- 生成文件：${OUTPUT_PATH}"
   echo
+}
+
+remove_existing_container_if_needed() {
+  if ! docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local answer=""
+  echo "检测到已存在同名容器：${CONTAINER_NAME}"
+  read -r -p "是否停止并删除旧容器后继续部署？[Y/n]: " answer
+  answer="${answer:-Y}"
+  if [[ ! "${answer}" =~ ^[Yy]$ ]]; then
+    echo "已取消部署。"
+    exit 0
+  fi
+
+  docker rm -f "${CONTAINER_NAME}" >/dev/null
+}
+
+pull_image() {
+  echo
+  echo "开始拉取镜像..."
+  docker pull "${SYNC_IMAGE}"
+}
+
+run_container() {
+  docker run -d \
+    --name "${CONTAINER_NAME}" \
+    --restart unless-stopped \
+    -p "${BIND_ADDRESS}:${HOST_PORT}:8787" \
+    -e NODE_ENV=production \
+    -e HOST=0.0.0.0 \
+    -e PORT=8787 \
+    -e ROOM_EMPTY_TTL_MS="${ROOM_EMPTY_TTL_MS}" \
+    -e MEMBER_HEARTBEAT_TIMEOUT_MS="${MEMBER_HEARTBEAT_TIMEOUT_MS}" \
+    -e MAX_ROOM_MEMBERS="${MAX_ROOM_MEMBERS}" \
+    -e MAX_QUEUE_ITEMS="${MAX_QUEUE_ITEMS}" \
+    -e MAX_COMMANDS_PER_WINDOW="${MAX_COMMANDS_PER_WINDOW}" \
+    -e RATE_LIMIT_WINDOW_MS="${RATE_LIMIT_WINDOW_MS}" \
+    -e MAX_ROOM_OPS_PER_WINDOW="${MAX_ROOM_OPS_PER_WINDOW}" \
+    -e ROOM_OPS_RATE_LIMIT_WINDOW_MS="${ROOM_OPS_RATE_LIMIT_WINDOW_MS}" \
+    -e MAX_MESSAGE_BYTES="${MAX_MESSAGE_BYTES}" \
+    -e CLEANUP_INTERVAL_MS="${CLEANUP_INTERVAL_MS}" \
+    "${SYNC_IMAGE}" >/dev/null
 }
 
 confirm_and_deploy() {
@@ -183,15 +189,16 @@ confirm_and_deploy() {
   read -r -p "确认开始部署？[Y/n]: " answer
   answer="${answer:-Y}"
   if [[ ! "${answer}" =~ ^[Yy]$ ]]; then
-    echo "已取消部署。生成的 compose 文件保留在："
-    echo "${OUTPUT_PATH}"
+    echo "已取消部署。"
     exit 0
   fi
 
-  docker compose -f "${OUTPUT_PATH}" pull
-  docker compose -f "${OUTPUT_PATH}" up -d
-  docker compose -f "${OUTPUT_PATH}" ps
+  remove_existing_container_if_needed
+  pull_image
+  run_container
 
+  echo
+  docker ps --filter "name=^${CONTAINER_NAME}$"
   echo
   echo "部署完成。"
   echo "本地 WebSocket 地址：ws://${BIND_ADDRESS}:${HOST_PORT}/ws"
@@ -201,9 +208,7 @@ confirm_and_deploy() {
 main() {
   print_header
   require_command "docker" "Docker Engine 或 Docker Desktop"
-  require_docker_compose
   load_interactive_values
-  render_compose_file
   show_summary
   confirm_and_deploy
 }
