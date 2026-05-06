@@ -131,7 +131,11 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
   function joinRoom(input: JoinRoomInput): JoinRoomSuccess | JoinRoomFailure {
     const record = rooms.get(input.roomId)
     if (!record) return { ok: false, reason: 'room-not-found' }
-    if (input.roomToken && record.roomTokenHash !== settings.roomTokenHasher(input.roomToken)) {
+    const normalizedToken = input.roomToken.trim()
+    if (!normalizedToken) {
+      return { ok: false, reason: 'invalid-room-token' }
+    }
+    if (record.roomTokenHash !== settings.roomTokenHasher(normalizedToken)) {
       return { ok: false, reason: 'invalid-room-token' }
     }
     const memberIds = Object.keys(record.room.members)

@@ -9,6 +9,8 @@ export type AppServerConfig = {
   maxQueueItems: number
   maxCommandsPerWindow: number
   rateLimitWindowMs: number
+  maxRoomOpsPerWindow: number
+  roomOpsRateLimitWindowMs: number
   maxMessageBytes: number
   cleanupIntervalMs: number
   now: () => number
@@ -27,6 +29,8 @@ export function createConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AppSe
     maxQueueItems: Number.parseInt(env.MAX_QUEUE_ITEMS ?? '500', 10),
     maxCommandsPerWindow: Number.parseInt(env.MAX_COMMANDS_PER_WINDOW ?? '20', 10),
     rateLimitWindowMs: Number.parseInt(env.RATE_LIMIT_WINDOW_MS ?? '1000', 10),
+    maxRoomOpsPerWindow: Number.parseInt(env.MAX_ROOM_OPS_PER_WINDOW ?? '6', 10),
+    roomOpsRateLimitWindowMs: Number.parseInt(env.ROOM_OPS_RATE_LIMIT_WINDOW_MS ?? '10000', 10),
     maxMessageBytes: Number.parseInt(env.MAX_MESSAGE_BYTES ?? '65536', 10),
     cleanupIntervalMs: Number.parseInt(env.CLEANUP_INTERVAL_MS ?? '1000', 10),
     now: () => Date.now(),

@@ -24,10 +24,13 @@ type SyncServerOptions = {
   maxQueueItems: number
   maxCommandsPerWindow: number
   rateLimitWindowMs: number
+  maxRoomOpsPerWindow?: number
+  roomOpsRateLimitWindowMs?: number
 }
 
 type ConnectionOptions = {
   connectionId: string
+  rateLimitKey?: string
   send: (message: unknown) => void
 }
 
@@ -38,6 +41,7 @@ type ClientConnection = {
 
 type ConnectionState = {
   connectionId: string
+  rateLimitKey: string
   send: (message: unknown) => void
   roomId: string | null
   deviceId: string | null
@@ -54,17 +58,24 @@ export function createSyncServer(options: SyncServerOptions) {
     maxQueueItems: options.maxQueueItems ?? 500,
     maxCommandsPerWindow: options.maxCommandsPerWindow ?? 20,
     rateLimitWindowMs: options.rateLimitWindowMs ?? 1000,
+    maxRoomOpsPerWindow: options.maxRoomOpsPerWindow ?? 6,
+    roomOpsRateLimitWindowMs: options.roomOpsRateLimitWindowMs ?? 10_000,
   }
   const store = createRoomStore(settings)
   const connections = new Map<string, ConnectionState>()
-  const rateLimiter = createConnectionRateLimiter({
+  const commandRateLimiter = createConnectionRateLimiter({
     maxCommandsPerWindow: settings.maxCommandsPerWindow,
     windowMs: settings.rateLimitWindowMs,
+  })
+  const roomOpsRateLimiter = createConnectionRateLimiter({
+    maxCommandsPerWindow: settings.maxRoomOpsPerWindow,
+    windowMs: settings.roomOpsRateLimitWindowMs,
   })
 
   function connect(input: ConnectionOptions): ClientConnection {
     const connection: ConnectionState = {
       connectionId: input.connectionId,
+      rateLimitKey: input.rateLimitKey?.trim() || input.connectionId,
       send: input.send,
       roomId: null,
       deviceId: null,
@@ -73,7 +84,19 @@ export function createSyncServer(options: SyncServerOptions) {
 
     return {
       receive(message) {
-        if (message.type !== 'createRoom' && !rateLimiter.accept(connection.connectionId, options.now())) {
+        const now = settings.now()
+        const isRoomOp = message.type === 'createRoom' || message.type === 'joinRoom'
+
+        if (isRoomOp && !roomOpsRateLimiter.accept(connection.rateLimitKey, now)) {
+          connection.send({
+            type: 'error',
+            ...('requestId' in message ? { requestId: message.requestId } : {}),
+            reason: 'rate-limit-exceeded',
+          })
+          return
+        }
+
+        if (!isRoomOp && !commandRateLimiter.accept(connection.connectionId, now)) {
           connection.send({
             type: 'error',
             reason: 'rate-limit-exceeded',
@@ -222,7 +245,7 @@ export function createSyncServer(options: SyncServerOptions) {
           broadcastMemberUpdate(roomId)
         }
         connections.delete(connection.connectionId)
-        rateLimiter.clear(connection.connectionId)
+        commandRateLimiter.clear(connection.connectionId)
       },
     }
   }

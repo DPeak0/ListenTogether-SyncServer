@@ -451,6 +451,97 @@ describe('websocketServer', () => {
       reason: 'rate-limit-exceeded',
     })
   })
+
+  it('requires a room token and rate-limits repeated room entry attempts from the same source', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+      maxRoomOpsPerWindow: 2,
+      roomOpsRateLimitWindowMs: 10_000,
+      maxCommandsPerWindow: 20,
+      rateLimitWindowMs: 1000,
+      maxRoomMembers: 8,
+      maxQueueItems: 500,
+    })
+
+    const ownerEvents = collectEvents()
+    const attackerEventsA = collectEvents()
+    const attackerEventsB = collectEvents()
+    const attackerEventsC = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      rateLimitKey: 'ip-owner',
+      send: (message) => ownerEvents.push(message),
+    })
+    const attackerA = server.connect({
+      connectionId: 'conn-attacker-a',
+      rateLimitKey: 'ip-attacker',
+      send: (message) => attackerEventsA.push(message),
+    })
+    const attackerB = server.connect({
+      connectionId: 'conn-attacker-b',
+      rateLimitKey: 'ip-attacker',
+      send: (message) => attackerEventsB.push(message),
+    })
+    const attackerC = server.connect({
+      connectionId: 'conn-attacker-c',
+      rateLimitKey: 'ip-attacker',
+      send: (message) => attackerEventsC.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-a',
+      roomName: 'Alice Room',
+    })
+
+    attackerA.receive({
+      type: 'joinRoom',
+      requestId: 'req-1',
+      roomId: '12345678',
+      roomToken: '',
+      nickname: 'Bob',
+      deviceId: 'device-b',
+    })
+    attackerB.receive({
+      type: 'joinRoom',
+      requestId: 'req-2',
+      roomId: '12345678',
+      roomToken: 'wrong-token',
+      nickname: 'Carol',
+      deviceId: 'device-c',
+    })
+    attackerC.receive({
+      type: 'joinRoom',
+      requestId: 'req-3',
+      roomId: '12345678',
+      roomToken: 'wrong-token',
+      nickname: 'Dave',
+      deviceId: 'device-d',
+    })
+
+    expect(lastMessageOfType(attackerEventsA, 'error')).toMatchObject({
+      type: 'error',
+      requestId: 'req-1',
+      reason: 'invalid-room-token',
+    })
+    expect(lastMessageOfType(attackerEventsB, 'error')).toMatchObject({
+      type: 'error',
+      requestId: 'req-2',
+      reason: 'invalid-room-token',
+    })
+    expect(lastMessageOfType(attackerEventsC, 'error')).toMatchObject({
+      type: 'error',
+      requestId: 'req-3',
+      reason: 'rate-limit-exceeded',
+    })
+  })
 })
 
 function collectEvents() {

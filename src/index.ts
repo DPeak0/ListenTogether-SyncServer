@@ -41,6 +41,7 @@ export function createAppServer(config: AppServerConfig): RunningServer {
       websocket.on('error', () => {})
       const connection = syncServer.connect({
         connectionId: `conn-${connectionSeq}`,
+        rateLimitKey: getRateLimitKey(request),
         send: (message) => websocket.send(JSON.stringify(message)),
       })
 
@@ -82,6 +83,13 @@ export function createAppServer(config: AppServerConfig): RunningServer {
       return httpServer.address()
     },
   }
+}
+
+function getRateLimitKey(request: http.IncomingMessage): string {
+  const forwardedFor = request.headers['x-forwarded-for']
+  const forwarded = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor
+  const firstForwarded = forwarded?.split(',')[0]?.trim()
+  return firstForwarded || request.socket.remoteAddress || 'unknown'
 }
 
 const currentModulePath = fileURLToPath(import.meta.url)

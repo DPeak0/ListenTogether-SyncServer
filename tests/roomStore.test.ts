@@ -65,7 +65,7 @@ describe('roomStore', () => {
     ]))
   })
 
-  it('allows joining by roomId only for the current friend-room flow', () => {
+  it('rejects joining when the room token is missing', () => {
     const store = createRoomStore({
       now: () => 1000,
       emptyRoomTtlMs: 30 * 60 * 1000,
@@ -82,17 +82,15 @@ describe('roomStore', () => {
 
     const joined = store.joinRoom({
       roomId: '12345678',
-      roomToken: '',
+      roomToken: '   ',
       nickname: 'Bob',
       deviceId: 'device-b',
     })
 
-    expect(joined.ok).toBe(true)
-    if (!joined.ok) throw new Error('expected roomId-only join to succeed')
-    expect(joined.snapshot.members).toEqual(expect.arrayContaining([
-      expect.objectContaining({ deviceId: 'device-a', nickname: 'Alice', online: true }),
-      expect.objectContaining({ deviceId: 'device-b', nickname: 'Bob', online: true }),
-    ]))
+    expect(joined).toEqual({
+      ok: false,
+      reason: 'invalid-room-token',
+    })
   })
 
   it('rejects joining with a wrong room token', () => {
