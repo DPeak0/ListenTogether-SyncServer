@@ -12,6 +12,12 @@ jobs:
   publish-release:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify release asset exists
+        run: test -f ListenTogether-SyncServer-Install.sh
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
