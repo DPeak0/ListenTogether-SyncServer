@@ -1,0 +1,18 @@
+services:
+  listentogether-syncserver:
+    build: .
+    container_name: listentogether-syncserver
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      ROOM_EMPTY_TTL_MS: 1800000
+      MEMBER_HEARTBEAT_TIMEOUT_MS: 5000
+      MAX_ROOM_MEMBERS: 8
+      MAX_QUEUE_ITEMS: 500
+      MAX_COMMANDS_PER_WINDOW: 20
+      RATE_LIMIT_WINDOW_MS: 1000
+      MAX_MESSAGE_BYTES: 65536
+      CLEANUP_INTERVAL_MS: 1000
+    ports:
+      - "127.0.0.1:8787:8787"
