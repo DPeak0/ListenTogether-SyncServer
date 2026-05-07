@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:latest"
+ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:0.1.0"
 GITHUB_SYNC_IMAGE="ghcr.io/dpeak0/listentogether-syncserver:latest"
 
 DEFAULT_CONTAINER_NAME="listentogether-syncserver"
