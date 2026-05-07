@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:0.1.0"
+ALIYUN_SYNC_IMAGE="crpi-euihr92xl17baj83.cn-shenzhen.personal.cr.aliyuncs.com/dpeak/listentogether-syncserver:0.1.2"
 GITHUB_SYNC_IMAGE="ghcr.io/dpeak0/listentogether-syncserver:latest"
 
 DEFAULT_CONTAINER_NAME="listentogether-syncserver"
@@ -176,6 +176,11 @@ remove_existing_container_if_needed() {
 
 pull_image() {
   echo
+  if "${DOCKER_CMD[@]}" image inspect "${SYNC_IMAGE}" >/dev/null 2>&1; then
+    echo "检测到本地已有镜像，先强制删除旧镜像后重新拉取..."
+    "${DOCKER_CMD[@]}" image rm -f "${SYNC_IMAGE}" >/dev/null || true
+  fi
+
   echo "开始拉取镜像..."
   "${DOCKER_CMD[@]}" pull "${SYNC_IMAGE}"
 }

@@ -66,6 +66,58 @@ describe('websocketServer', () => {
     })
   })
 
+  it('allows joining by roomId even when roomToken is empty', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    })
+
+    const ownerEvents = collectEvents()
+    const joinerEvents = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      send: (message) => ownerEvents.push(message),
+    })
+    const joiner = server.connect({
+      connectionId: 'conn-joiner',
+      send: (message) => joinerEvents.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-a',
+      roomName: 'Alice Room',
+    })
+
+    joiner.receive({
+      type: 'joinRoom',
+      requestId: 'req-join',
+      roomId: '12345678',
+      roomToken: '',
+      nickname: 'Bob',
+      deviceId: 'device-b',
+    })
+
+    expect(lastMessageOfType(joinerEvents, 'joined')).toMatchObject({
+      type: 'joined',
+      requestId: 'req-join',
+      roomId: '12345678',
+    })
+    expect(lastMessageOfType(ownerEvents, 'memberUpdate')).toMatchObject({
+      type: 'memberUpdate',
+      roomId: '12345678',
+      members: expect.arrayContaining([
+        expect.objectContaining({ deviceId: 'device-b', nickname: 'Bob', online: true }),
+      ]),
+    })
+  })
+
   it('broadcasts accepted playback and queue commands to all room members', () => {
     const server = createSyncServer({
       now: () => 1000,
@@ -452,7 +504,7 @@ describe('websocketServer', () => {
     })
   })
 
-  it('requires a room token and rate-limits repeated room entry attempts from the same source', () => {
+  it('allows empty room token joins but still rejects wrong tokens and rate-limits repeated room entry attempts from the same source', () => {
     const server = createSyncServer({
       now: () => 1000,
       emptyRoomTtlMs: 30 * 60 * 1000,
@@ -526,10 +578,10 @@ describe('websocketServer', () => {
       deviceId: 'device-d',
     })
 
-    expect(lastMessageOfType(attackerEventsA, 'error')).toMatchObject({
-      type: 'error',
+    expect(lastMessageOfType(attackerEventsA, 'joined')).toMatchObject({
+      type: 'joined',
       requestId: 'req-1',
-      reason: 'invalid-room-token',
+      roomId: '12345678',
     })
     expect(lastMessageOfType(attackerEventsB, 'error')).toMatchObject({
       type: 'error',

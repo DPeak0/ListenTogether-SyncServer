@@ -65,7 +65,7 @@ describe('roomStore', () => {
     ]))
   })
 
-  it('rejects joining when the room token is missing', () => {
+  it('joins a room by roomId when the room token is omitted', () => {
     const store = createRoomStore({
       now: () => 1000,
       emptyRoomTtlMs: 30 * 60 * 1000,
@@ -87,10 +87,12 @@ describe('roomStore', () => {
       deviceId: 'device-b',
     })
 
-    expect(joined).toEqual({
-      ok: false,
-      reason: 'invalid-room-token',
-    })
+    expect(joined.ok).toBe(true)
+    if (!joined.ok) throw new Error('expected join without token to succeed')
+    expect(joined.snapshot.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ deviceId: 'device-a', nickname: 'Alice', online: true }),
+      expect.objectContaining({ deviceId: 'device-b', nickname: 'Bob', online: true }),
+    ]))
   })
 
   it('rejects joining with a wrong room token', () => {
