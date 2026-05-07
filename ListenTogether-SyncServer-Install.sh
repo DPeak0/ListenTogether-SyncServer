@@ -33,6 +33,7 @@ MAX_ROOM_OPS_PER_WINDOW="${DEFAULT_MAX_ROOM_OPS_PER_WINDOW}"
 ROOM_OPS_RATE_LIMIT_WINDOW_MS="${DEFAULT_ROOM_OPS_RATE_LIMIT_WINDOW_MS}"
 MAX_MESSAGE_BYTES="${DEFAULT_MAX_MESSAGE_BYTES}"
 CLEANUP_INTERVAL_MS="${DEFAULT_CLEANUP_INTERVAL_MS}"
+DOCKER_CMD=("docker")
 
 print_header() {
   echo "=============================================="
@@ -48,6 +49,22 @@ require_command() {
     echo "请先安装：${install_hint}"
     exit 1
   fi
+}
+
+setup_docker_command() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    DOCKER_CMD=("docker")
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    DOCKER_CMD=("sudo" "docker")
+    return
+  fi
+
+  echo "当前用户不是 root，且系统未安装 sudo。"
+  echo "请先安装 sudo，或切换到 root 后重新执行脚本。"
+  exit 1
 }
 
 prompt_value() {
@@ -141,7 +158,7 @@ show_summary() {
 }
 
 remove_existing_container_if_needed() {
-  if ! docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+  if ! "${DOCKER_CMD[@]}" container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -154,17 +171,17 @@ remove_existing_container_if_needed() {
     exit 0
   fi
 
-  docker rm -f "${CONTAINER_NAME}" >/dev/null
+  "${DOCKER_CMD[@]}" rm -f "${CONTAINER_NAME}" >/dev/null
 }
 
 pull_image() {
   echo
   echo "开始拉取镜像..."
-  docker pull "${SYNC_IMAGE}"
+  "${DOCKER_CMD[@]}" pull "${SYNC_IMAGE}"
 }
 
 run_container() {
-  docker run -d \
+  "${DOCKER_CMD[@]}" run -d \
     --name "${CONTAINER_NAME}" \
     --restart unless-stopped \
     -p "${BIND_ADDRESS}:${HOST_PORT}:8787" \
@@ -198,7 +215,7 @@ confirm_and_deploy() {
   run_container
 
   echo
-  docker ps --filter "name=^${CONTAINER_NAME}$"
+  "${DOCKER_CMD[@]}" ps --filter "name=^${CONTAINER_NAME}$"
   echo
   echo "部署完成。"
   echo "请在扩展设置页的“服务端地址”中填写：${BIND_ADDRESS}:${HOST_PORT}"
@@ -209,6 +226,7 @@ confirm_and_deploy() {
 main() {
   print_header
   require_command "docker" "Docker Engine 或 Docker Desktop"
+  setup_docker_command
   load_interactive_values
   show_summary
   confirm_and_deploy
