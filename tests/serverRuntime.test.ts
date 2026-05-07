@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { createAppServer } from '../src/index.js'
+import { createAppServer, formatStartupMessages } from '../src/index.js'
 
 describe('server runtime', () => {
   const servers: Array<{ close: () => Promise<void> }> = []
@@ -122,6 +122,35 @@ describe('server runtime', () => {
       },
       untilType: 'roomCreated',
     })).rejects.toThrow(/socket closed/i)
+  })
+
+  it('formats startup messages for a listening server', () => {
+    expect(formatStartupMessages({
+      port: 8787,
+      host: '0.0.0.0',
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      memberHeartbeatTimeoutMs: 5000,
+      maxRoomMembers: 8,
+      maxQueueItems: 500,
+      maxCommandsPerWindow: 20,
+      rateLimitWindowMs: 1000,
+      maxRoomOpsPerWindow: 6,
+      roomOpsRateLimitWindowMs: 10_000,
+      maxMessageBytes: 65_536,
+      cleanupIntervalMs: 1000,
+      now: () => 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    }, {
+      address: '0.0.0.0',
+      family: 'IPv4',
+      port: 8787,
+    })).toEqual([
+      '[sync-server] started on 0.0.0.0:8787',
+      '[sync-server] probe http://0.0.0.0:8787/',
+      '[sync-server] websocket ws://0.0.0.0:8787/',
+    ])
   })
 })
 

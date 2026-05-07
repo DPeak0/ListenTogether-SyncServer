@@ -77,7 +77,7 @@ export function createAppServer(config: AppServerConfig): RunningServer {
       return new Promise((resolve, reject) => {
         httpServer.once('error', reject)
         httpServer.listen(config.port, config.host, () => {
-        httpServer.off('error', reject)
+          httpServer.off('error', reject)
           cleanupLoop.start()
           resolve()
         })
@@ -112,10 +112,30 @@ function getRateLimitKey(request: http.IncomingMessage): string {
 const currentModulePath = fileURLToPath(import.meta.url)
 const entryArgPath = process.argv[1] ? path.resolve(process.argv[1]) : null
 
+export function formatStartupMessages(config: AppServerConfig, address: ReturnType<http.Server['address']>): string[] {
+  if (!address || typeof address === 'string') {
+    return ['[sync-server] started']
+  }
+
+  const bindHost = config.host === '0.0.0.0' ? '0.0.0.0' : address.address
+  return [
+    `[sync-server] started on ${bindHost}:${address.port}`,
+    `[sync-server] probe http://${bindHost}:${address.port}/`,
+    `[sync-server] websocket ws://${bindHost}:${address.port}/`,
+  ]
+}
+
 if (entryArgPath && path.resolve(currentModulePath) === entryArgPath) {
-  const server = createAppServer(createConfigFromEnv())
-  server.listen().catch((error) => {
-    console.error('[sync-server] failed to start', error)
-    process.exitCode = 1
-  })
+  const config = createConfigFromEnv()
+  const server = createAppServer(config)
+  server.listen()
+    .then(() => {
+      for (const line of formatStartupMessages(config, server.address())) {
+        console.log(line)
+      }
+    })
+    .catch((error) => {
+      console.error('[sync-server] failed to start', error)
+      process.exitCode = 1
+    })
 }
