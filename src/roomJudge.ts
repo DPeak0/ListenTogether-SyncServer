@@ -77,7 +77,6 @@ export function judgePlaybackCommand(input: JudgePlaybackInput): AcceptedPlaybac
   }
 
   const nextRevision = currentRevision + 1
-  const { streamUrl: _streamUrl, ...state } = command.state
   const message: PlaybackAcceptedMessage = {
     type: 'playbackAccepted',
     roomId: command.roomId,
@@ -85,7 +84,7 @@ export function judgePlaybackCommand(input: JudgePlaybackInput): AcceptedPlaybac
     leaderId: command.senderId,
     revision: nextRevision,
     state: {
-      ...state,
+      ...command.state,
       startedAt: command.state.status === 'playing' ? now : command.state.startedAt,
       revision: nextRevision,
       commandId: command.commandId,

@@ -207,6 +207,76 @@ describe('websocketServer', () => {
     })
   })
 
+  it('keeps streamUrl in playbackAccepted so room members can consume helper-resolved streams', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    })
+
+    const ownerEvents = collectEvents()
+    const helperEvents = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      send: (message) => ownerEvents.push(message),
+    })
+    const helper = server.connect({
+      connectionId: 'conn-helper',
+      send: (message) => helperEvents.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-owner',
+      roomName: 'Alice Room',
+    })
+    helper.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper',
+      deviceId: 'device-helper',
+    })
+
+    helper.receive({
+      type: 'playbackCommand',
+      roomId: '12345678',
+      commandId: 'cmd-stream-url',
+      senderId: 'device-helper',
+      baseRevision: 0,
+      state: {
+        provider: 'netease',
+        trackId: 'netrack_1',
+        status: 'playing',
+        positionMs: 0,
+        startedAt: 10,
+        streamUrl: 'https://cdn.test/helper-full.mp3',
+      },
+    })
+
+    expect(lastMessageOfType(ownerEvents, 'playbackAccepted')).toMatchObject({
+      type: 'playbackAccepted',
+      commandId: 'cmd-stream-url',
+      state: expect.objectContaining({
+        provider: 'netease',
+        trackId: 'netrack_1',
+        streamUrl: 'https://cdn.test/helper-full.mp3',
+      }),
+    })
+    expect(lastMessageOfType(helperEvents, 'playbackAccepted')).toMatchObject({
+      type: 'playbackAccepted',
+      state: expect.objectContaining({
+        streamUrl: 'https://cdn.test/helper-full.mp3',
+      }),
+    })
+  })
+
   it('broadcasts heartbeat member updates and marks a member offline when their connection closes', () => {
     const server = createSyncServer({
       now: () => 1000,
