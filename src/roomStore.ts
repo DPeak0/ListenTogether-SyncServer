@@ -1,4 +1,5 @@
-import type { RoomSnapshot, RoomState, SyncMember } from './roomTypes.js'
+import type { AssistProvider, TrackMeta } from './protocol.js'
+import type { RoomSnapshot, RoomState, StreamAssistRequestState, SyncMember } from './roomTypes.js'
 
 type CreateRoomInput = {
   roomName: string
@@ -65,6 +66,33 @@ type RoomStore = {
   joinRoom(input: JoinRoomInput): JoinRoomSuccess | JoinRoomFailure
   leaveRoom(input: LeaveRoomInput): void
   touchMemberHeartbeat(input: TouchMemberHeartbeatInput): void
+  updateMemberSharedProviders(input: {
+    roomId: string
+    deviceId: string
+    providers: AssistProvider[]
+  }): RoomState | null
+  createAssistRequest(input: {
+    roomId: string
+    requestId: string
+    requesterId: string
+    provider: AssistProvider
+    trackId: string
+    trackMeta?: TrackMeta
+  }): StreamAssistRequestState | null
+  getAssistRequest(roomId: string, requestId: string): StreamAssistRequestState | null
+  assignNextAssistMember(input: {
+    roomId: string
+    requestId: string
+  }): { request: StreamAssistRequestState; member: SyncMember } | null
+  failAssistRequest(input: {
+    roomId: string
+    requestId: string
+    senderId: string
+  }): { request: StreamAssistRequestState; retriable: boolean } | null
+  completeAssistRequest(input: {
+    roomId: string
+    requestId: string
+  }): StreamAssistRequestState | null
   getRoom(roomId: string): RoomState | null
   getSnapshot(roomId: string): RoomSnapshot | null
   markInactiveMembersOffline(): string[]
@@ -114,6 +142,8 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
         queueVersion: 0,
       },
       commands: {},
+      assistRequests: {},
+      assistCursors: {},
     }
 
     rooms.set(roomId, {
@@ -181,6 +211,131 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
   function getRoom(roomId: string): RoomState | null {
     const record = rooms.get(roomId)
     return record?.room ?? null
+  }
+
+  function updateMemberSharedProviders(input: {
+    roomId: string
+    deviceId: string
+    providers: AssistProvider[]
+  }): RoomState | null {
+    const record = rooms.get(input.roomId)
+    if (!record) return null
+    const member = record.room.members[input.deviceId]
+    if (!member) return null
+    const now = settings.now()
+    record.room.members[input.deviceId] = {
+      ...member,
+      sharedProviders: dedupeProviders(input.providers),
+      lastSeenAt: now,
+    }
+    record.room.meta.updatedAt = now
+    return record.room
+  }
+
+  function createAssistRequest(input: {
+    roomId: string
+    requestId: string
+    requesterId: string
+    provider: AssistProvider
+    trackId: string
+    trackMeta?: TrackMeta
+  }): StreamAssistRequestState | null {
+    const record = rooms.get(input.roomId)
+    if (!record) return null
+    const now = settings.now()
+    const request: StreamAssistRequestState = {
+      requestId: input.requestId,
+      roomId: input.roomId,
+      requesterId: input.requesterId,
+      provider: input.provider,
+      trackId: input.trackId,
+      trackMeta: input.trackMeta,
+      status: 'pending',
+      attemptedMemberIds: [],
+      createdAt: now,
+      expiresAt: now + 15_000,
+    }
+    record.room.assistRequests[input.requestId] = request
+    record.room.meta.updatedAt = now
+    return request
+  }
+
+  function getAssistRequest(roomId: string, requestId: string): StreamAssistRequestState | null {
+    const record = rooms.get(roomId)
+    if (!record) return null
+    return record.room.assistRequests[requestId] ?? null
+  }
+
+  function assignNextAssistMember(input: {
+    roomId: string
+    requestId: string
+  }): { request: StreamAssistRequestState; member: SyncMember } | null {
+    const record = rooms.get(input.roomId)
+    if (!record) return null
+    const request = record.room.assistRequests[input.requestId]
+    if (!request) return null
+
+    const candidates = Object.values(record.room.members).filter((member) => {
+      if (!member.online) return false
+      if (member.deviceId === request.requesterId) return false
+      if (request.attemptedMemberIds.includes(member.deviceId)) return false
+      return !!member.sharedProviders?.includes(request.provider)
+    })
+    if (!candidates.length) {
+      request.status = 'failed'
+      request.assignedMemberId = undefined
+      record.room.meta.updatedAt = settings.now()
+      return null
+    }
+
+    const cursor = record.room.assistCursors[request.provider] ?? 0
+    const selectedIndex = cursor % candidates.length
+    const member = candidates[selectedIndex]
+    request.status = 'resolving'
+    request.assignedMemberId = member.deviceId
+    if (!request.attemptedMemberIds.includes(member.deviceId)) {
+      request.attemptedMemberIds.push(member.deviceId)
+    }
+    record.room.assistCursors[request.provider] = (selectedIndex + 1) % candidates.length
+    record.room.meta.updatedAt = settings.now()
+    return { request, member }
+  }
+
+  function failAssistRequest(input: {
+    roomId: string
+    requestId: string
+    senderId: string
+  }): { request: StreamAssistRequestState; retriable: boolean } | null {
+    const record = rooms.get(input.roomId)
+    if (!record) return null
+    const request = record.room.assistRequests[input.requestId]
+    if (!request) return null
+    if (request.assignedMemberId !== input.senderId) return null
+    request.assignedMemberId = undefined
+    request.status = 'pending'
+    const retriable = Object.values(record.room.members).some((member) => {
+      if (!member.online) return false
+      if (member.deviceId === request.requesterId) return false
+      if (request.attemptedMemberIds.includes(member.deviceId)) return false
+      return !!member.sharedProviders?.includes(request.provider)
+    })
+    if (!retriable) request.status = 'failed'
+    record.room.meta.updatedAt = settings.now()
+    return { request, retriable }
+  }
+
+  function completeAssistRequest(input: {
+    roomId: string
+    requestId: string
+  }): StreamAssistRequestState | null {
+    const record = rooms.get(input.roomId)
+    if (!record) return null
+    const request = record.room.assistRequests[input.requestId]
+    if (!request) return null
+    request.status = 'completed'
+    request.assignedMemberId = undefined
+    record.room.meta.updatedAt = settings.now()
+    return request
   }
 
   function touchMemberHeartbeat(input: TouchMemberHeartbeatInput): void {
@@ -253,6 +408,12 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
     joinRoom,
     leaveRoom,
     touchMemberHeartbeat,
+    updateMemberSharedProviders,
+    createAssistRequest,
+    getAssistRequest,
+    assignNextAssistMember,
+    failAssistRequest,
+    completeAssistRequest,
     getRoom,
     getSnapshot,
     markInactiveMembersOffline,
@@ -285,4 +446,8 @@ function toSnapshot(room: RoomState): RoomSnapshot {
 
 function hasOnlineMembers(room: RoomState): boolean {
   return Object.values(room.members).some((member) => member.online)
+}
+
+function dedupeProviders(providers: AssistProvider[]) {
+  return [...new Set(providers.filter((provider) => provider === 'netease' || provider === 'qq'))]
 }

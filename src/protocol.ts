@@ -1,4 +1,5 @@
 export type PlayMode = 'random' | 'sequence' | 'loop'
+export type AssistProvider = 'netease' | 'qq'
 
 export type TrackMeta = {
   title: string
@@ -79,6 +80,63 @@ export type LeaveRoomMessage = {
   type: 'leaveRoom'
   roomId: string
   senderId: string
+}
+
+export type ShareCapabilitiesUpdateMessage = {
+  type: 'shareCapabilitiesUpdate'
+  roomId: string
+  senderId: string
+  providers: AssistProvider[]
+}
+
+export type StreamAssistRequestMessage = {
+  type: 'streamAssistRequest'
+  roomId: string
+  requestId: string
+  senderId: string
+  provider: AssistProvider
+  trackId: string
+  trackMeta?: TrackMeta
+  reason: 'trial' | 'blocked'
+}
+
+export type StreamAssistResolveMessage = {
+  type: 'streamAssistResolve'
+  roomId: string
+  requestId: string
+  requesterId: string
+  targetMemberId: string
+  provider: AssistProvider
+  trackId: string
+  trackMeta?: TrackMeta
+}
+
+export type StreamAssistFailedMessage = {
+  type: 'streamAssistFailed'
+  roomId: string
+  requestId: string
+  senderId: string
+  provider: AssistProvider
+  trackId: string
+  reason: string
+}
+
+export type StreamAssistDeclinedMessage = {
+  type: 'streamAssistDeclined'
+  roomId: string
+  requestId: string
+  senderId: string
+  provider: AssistProvider
+  trackId: string
+  reason?: string
+}
+
+export type StreamAssistResultMessage = {
+  type: 'streamAssistResult'
+  roomId: string
+  requestId: string
+  ok: boolean
+  reason?: string
 }
 
 export type HeartbeatMessage = {

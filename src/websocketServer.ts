@@ -1,4 +1,5 @@
 import type {
+  ShareCapabilitiesUpdateMessage,
   CreateRoomMessage,
   HeartbeatMessage,
   JoinRoomMessage,
@@ -9,6 +10,11 @@ import type {
   RoomClosedMessage,
   RoomCreatedMessage,
   JoinedMessage,
+  StreamAssistDeclinedMessage,
+  StreamAssistFailedMessage,
+  StreamAssistRequestMessage,
+  StreamAssistResolveMessage,
+  StreamAssistResultMessage,
 } from './protocol.js'
 import { createConnectionRateLimiter } from './rateLimit.js'
 import { judgePlaybackCommand, judgeQueueCommand } from './roomJudge.js'
@@ -35,7 +41,18 @@ type ConnectionOptions = {
 }
 
 type ClientConnection = {
-  receive: (message: CreateRoomMessage | JoinRoomMessage | LeaveRoomMessage | HeartbeatMessage | PlaybackCommandMessage | QueueCommandMessage) => void
+  receive: (message:
+    | CreateRoomMessage
+    | JoinRoomMessage
+    | LeaveRoomMessage
+    | HeartbeatMessage
+    | PlaybackCommandMessage
+    | QueueCommandMessage
+    | ShareCapabilitiesUpdateMessage
+    | StreamAssistRequestMessage
+    | StreamAssistFailedMessage
+    | StreamAssistDeclinedMessage
+  ) => void
   disconnect: () => void
 }
 
@@ -156,6 +173,7 @@ export function createSyncServer(options: SyncServerOptions) {
         if (message.type === 'playbackCommand') {
           const room = store.getRoom(message.roomId)
           if (!room) return
+          completeMatchingAssistRequest(message.roomId, message.senderId, message.state.provider, message.state.trackId)
           const result = judgePlaybackCommand({
             room,
             now: settings.now(),
@@ -231,6 +249,46 @@ export function createSyncServer(options: SyncServerOptions) {
             connection.deviceId = null
           }
           broadcastMemberUpdate(message.roomId)
+          return
+        }
+
+        if (message.type === 'shareCapabilitiesUpdate') {
+          const room = store.updateMemberSharedProviders({
+            roomId: message.roomId,
+            deviceId: message.senderId,
+            providers: message.providers,
+          })
+          if (!room) return
+          broadcastMemberUpdate(message.roomId)
+          return
+        }
+
+        if (message.type === 'streamAssistRequest') {
+          const request = store.createAssistRequest({
+            roomId: message.roomId,
+            requestId: message.requestId,
+            requesterId: message.senderId,
+            provider: message.provider,
+            trackId: message.trackId,
+            trackMeta: message.trackMeta,
+          })
+          if (!request) return
+          dispatchAssistRequest(message.roomId, message.requestId)
+          return
+        }
+
+        if (message.type === 'streamAssistFailed' || message.type === 'streamAssistDeclined') {
+          const failed = store.failAssistRequest({
+            roomId: message.roomId,
+            requestId: message.requestId,
+            senderId: message.senderId,
+          })
+          if (!failed) return
+          if (failed.retriable) {
+            dispatchAssistRequest(message.roomId, message.requestId)
+          } else {
+            notifyAssistResult(message.roomId, failed.request.requestId, failed.request.requesterId, false, 'no-helper-succeeded')
+          }
         }
       },
       disconnect() {
@@ -261,11 +319,70 @@ export function createSyncServer(options: SyncServerOptions) {
     broadcastToRoom(roomId, message)
   }
 
+  function dispatchAssistRequest(roomId: string, requestId: string): void {
+    const assigned = store.assignNextAssistMember({ roomId, requestId })
+    if (!assigned) {
+      const request = store.getAssistRequest(roomId, requestId)
+      if (request) {
+        notifyAssistResult(roomId, request.requestId, request.requesterId, false, 'no-helper-succeeded')
+      }
+      return
+    }
+    const message: StreamAssistResolveMessage = {
+      type: 'streamAssistResolve',
+      roomId,
+      requestId,
+      requesterId: assigned.request.requesterId,
+      targetMemberId: assigned.member.deviceId,
+      provider: assigned.request.provider,
+      trackId: assigned.request.trackId,
+      trackMeta: assigned.request.trackMeta,
+    }
+    sendToMember(roomId, assigned.member.deviceId, message)
+  }
+
+  function notifyAssistResult(
+    roomId: string,
+    requestId: string,
+    requesterId: string,
+    ok: boolean,
+    reason?: string,
+  ): void {
+    const message: StreamAssistResultMessage = {
+      type: 'streamAssistResult',
+      roomId,
+      requestId,
+      ok,
+      ...(reason ? { reason } : {}),
+    }
+    sendToMember(roomId, requesterId, message)
+  }
+
   function broadcastToRoom(roomId: string, message: unknown): void {
     for (const connection of connections.values()) {
       if (connection.roomId === roomId) {
         connection.send(message)
       }
+    }
+  }
+
+  function sendToMember(roomId: string, deviceId: string, message: unknown): void {
+    for (const connection of connections.values()) {
+      if (connection.roomId === roomId && connection.deviceId === deviceId) {
+        connection.send(message)
+      }
+    }
+  }
+
+  function completeMatchingAssistRequest(roomId: string, senderId: string, provider: string, trackId: string): void {
+    const room = store.getRoom(roomId)
+    if (!room) return
+    for (const request of Object.values(room.assistRequests)) {
+      if (request.status !== 'resolving') continue
+      if (request.assignedMemberId !== senderId) continue
+      if (request.provider !== provider) continue
+      if (request.trackId !== trackId) continue
+      store.completeAssistRequest({ roomId, requestId: request.requestId })
     }
   }
 

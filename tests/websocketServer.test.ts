@@ -504,6 +504,228 @@ describe('websocketServer', () => {
     })
   })
 
+  it('broadcasts shared provider capabilities in member updates and dispatches assist requests to eligible members', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    })
+
+    const ownerEvents = collectEvents()
+    const helperEvents = collectEvents()
+    const requesterEvents = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      send: (message) => ownerEvents.push(message),
+    })
+    const helper = server.connect({
+      connectionId: 'conn-helper',
+      send: (message) => helperEvents.push(message),
+    })
+    const requester = server.connect({
+      connectionId: 'conn-requester',
+      send: (message) => requesterEvents.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-owner',
+      roomName: 'Alice Room',
+    })
+    helper.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper',
+      deviceId: 'device-helper',
+    })
+    requester.receive({
+      type: 'joinRoom',
+      requestId: 'req-requester',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Requester',
+      deviceId: 'device-requester',
+    })
+
+    helper.receive({
+      type: 'shareCapabilitiesUpdate',
+      roomId: '12345678',
+      senderId: 'device-helper',
+      providers: ['netease'],
+    })
+
+    expect(lastMessageOfType(ownerEvents, 'memberUpdate')).toMatchObject({
+      type: 'memberUpdate',
+      roomId: '12345678',
+      members: expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: 'device-helper',
+          sharedProviders: ['netease'],
+        }),
+      ]),
+    })
+
+    requester.receive({
+      type: 'streamAssistRequest',
+      roomId: '12345678',
+      requestId: 'assist-1',
+      senderId: 'device-requester',
+      provider: 'netease',
+      trackId: 'netrack_1',
+      trackMeta: {
+        title: 'VIP Song',
+        artist: 'Artist',
+        coverUrl: 'cover.jpg',
+        durationMs: 180000,
+      },
+      reason: 'trial',
+    })
+
+    expect(lastMessageOfType(helperEvents, 'streamAssistResolve')).toMatchObject({
+      type: 'streamAssistResolve',
+      roomId: '12345678',
+      requestId: 'assist-1',
+      requesterId: 'device-requester',
+      targetMemberId: 'device-helper',
+      provider: 'netease',
+      trackId: 'netrack_1',
+    })
+    expect(lastMessageOfType(requesterEvents, 'streamAssistResolve')).toBeUndefined()
+  })
+
+  it('retries stream assist with the next helper after a failure and reports final failure to requester', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    })
+
+    const helperAEvents = collectEvents()
+    const helperBEvents = collectEvents()
+    const requesterEvents = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      send: () => {},
+    })
+    const helperA = server.connect({
+      connectionId: 'conn-helper-a',
+      send: (message) => helperAEvents.push(message),
+    })
+    const helperB = server.connect({
+      connectionId: 'conn-helper-b',
+      send: (message) => helperBEvents.push(message),
+    })
+    const requester = server.connect({
+      connectionId: 'conn-requester',
+      send: (message) => requesterEvents.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-owner',
+      roomName: 'Alice Room',
+    })
+    helperA.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper-a',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper A',
+      deviceId: 'device-helper-a',
+    })
+    helperB.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper-b',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper B',
+      deviceId: 'device-helper-b',
+    })
+    requester.receive({
+      type: 'joinRoom',
+      requestId: 'req-requester',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Requester',
+      deviceId: 'device-requester',
+    })
+
+    helperA.receive({
+      type: 'shareCapabilitiesUpdate',
+      roomId: '12345678',
+      senderId: 'device-helper-a',
+      providers: ['netease'],
+    })
+    helperB.receive({
+      type: 'shareCapabilitiesUpdate',
+      roomId: '12345678',
+      senderId: 'device-helper-b',
+      providers: ['netease'],
+    })
+
+    requester.receive({
+      type: 'streamAssistRequest',
+      roomId: '12345678',
+      requestId: 'assist-2',
+      senderId: 'device-requester',
+      provider: 'netease',
+      trackId: 'netrack_2',
+      reason: 'blocked',
+    })
+
+    expect(lastMessageOfType(helperAEvents, 'streamAssistResolve')).toMatchObject({
+      type: 'streamAssistResolve',
+      requestId: 'assist-2',
+      targetMemberId: 'device-helper-a',
+    })
+
+    helperA.receive({
+      type: 'streamAssistFailed',
+      roomId: '12345678',
+      requestId: 'assist-2',
+      senderId: 'device-helper-a',
+      provider: 'netease',
+      trackId: 'netrack_2',
+      reason: 'vip-required',
+    })
+
+    expect(lastMessageOfType(helperBEvents, 'streamAssistResolve')).toMatchObject({
+      type: 'streamAssistResolve',
+      requestId: 'assist-2',
+      targetMemberId: 'device-helper-b',
+    })
+
+    helperB.receive({
+      type: 'streamAssistDeclined',
+      roomId: '12345678',
+      requestId: 'assist-2',
+      senderId: 'device-helper-b',
+      provider: 'netease',
+      trackId: 'netrack_2',
+      reason: 'busy',
+    })
+
+    expect(lastMessageOfType(requesterEvents, 'streamAssistResult')).toMatchObject({
+      type: 'streamAssistResult',
+      roomId: '12345678',
+      requestId: 'assist-2',
+      ok: false,
+      reason: 'no-helper-succeeded',
+    })
+  })
+
   it('allows empty room token joins but still rejects wrong tokens and rate-limits repeated room entry attempts from the same source', () => {
     const server = createSyncServer({
       now: () => 1000,

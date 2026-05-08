@@ -1,4 +1,5 @@
 import type {
+  AssistProvider,
   PlaybackAcceptedMessage,
   PlaybackCommandMessage,
   PlaybackState,
@@ -12,12 +13,27 @@ export type SyncMember = {
   nickname: string
   isOwner: boolean
   online: boolean
+  sharedProviders?: AssistProvider[]
   latencyMs?: number
   playbackPositionMs?: number
   playbackStatus?: 'playing' | 'paused' | 'idle'
   playbackUpdatedAt?: number
   joinedAt?: number
   lastSeenAt?: number
+}
+
+export type StreamAssistRequestState = {
+  requestId: string
+  roomId: string
+  requesterId: string
+  provider: AssistProvider
+  trackId: string
+  trackMeta?: PlaybackState['trackMeta']
+  status: 'pending' | 'resolving' | 'failed' | 'completed'
+  attemptedMemberIds: string[]
+  assignedMemberId?: string
+  createdAt: number
+  expiresAt: number
 }
 
 export type RoomMeta = {
@@ -69,6 +85,8 @@ export type RoomState = {
   playback?: RoomPlayback
   queue: RoomQueue
   commands: Record<string, RoomCommandRecord>
+  assistRequests: Record<string, StreamAssistRequestState>
+  assistCursors: Partial<Record<AssistProvider, number>>
 }
 
 export type RoomCloseReason = 'expired' | 'room-not-found'
