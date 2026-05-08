@@ -103,7 +103,7 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
   const settings = {
     now: options.now,
     emptyRoomTtlMs: options.emptyRoomTtlMs,
-    memberHeartbeatTimeoutMs: options.memberHeartbeatTimeoutMs ?? 5000,
+    memberHeartbeatTimeoutMs: options.memberHeartbeatTimeoutMs ?? 12_000,
     maxRoomMembers: options.maxRoomMembers ?? 8,
     maxQueueItems: options.maxQueueItems ?? 500,
     roomIdFactory: options.roomIdFactory,

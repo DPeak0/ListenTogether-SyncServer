@@ -24,7 +24,7 @@ export function createConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AppSe
     host: env.HOST ?? '0.0.0.0',
     port: Number.parseInt(env.PORT ?? '8787', 10),
     emptyRoomTtlMs: Number.parseInt(env.ROOM_EMPTY_TTL_MS ?? `${30 * 60 * 1000}`, 10),
-    memberHeartbeatTimeoutMs: Number.parseInt(env.MEMBER_HEARTBEAT_TIMEOUT_MS ?? '5000', 10),
+    memberHeartbeatTimeoutMs: Number.parseInt(env.MEMBER_HEARTBEAT_TIMEOUT_MS ?? '12000', 10),
     maxRoomMembers: Number.parseInt(env.MAX_ROOM_MEMBERS ?? '8', 10),
     maxQueueItems: Number.parseInt(env.MAX_QUEUE_ITEMS ?? '500', 10),
     maxCommandsPerWindow: Number.parseInt(env.MAX_COMMANDS_PER_WINDOW ?? '20', 10),

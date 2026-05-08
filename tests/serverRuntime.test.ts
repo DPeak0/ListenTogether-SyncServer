@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { createAppServer, formatStartupMessages } from '../src/index.js'
+import { createConfigFromEnv } from '../src/config.js'
 
 describe('server runtime', () => {
   const servers: Array<{ close: () => Promise<void> }> = []
@@ -151,6 +152,12 @@ describe('server runtime', () => {
       '[sync-server] probe http://0.0.0.0:8787/',
       '[sync-server] websocket ws://0.0.0.0:8787/',
     ])
+  })
+
+  it('uses a safer default heartbeat timeout from env config', () => {
+    const config = createConfigFromEnv({})
+
+    expect(config.memberHeartbeatTimeoutMs).toBe(12_000)
   })
 })
 

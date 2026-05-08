@@ -333,7 +333,7 @@ describe('websocketServer', () => {
       reportedAt: 3000,
     })
 
-    now = 7000
+    now = 13000
     expect(server.markInactiveMembersOffline()).toEqual(['12345678'])
     expect(lastMessageOfType(aEvents, 'memberUpdate')).toMatchObject({
       type: 'memberUpdate',
@@ -350,7 +350,7 @@ describe('websocketServer', () => {
       ]),
     })
 
-    now = 9001
+    now = 15001
     expect(server.markInactiveMembersOffline()).toEqual(['12345678'])
     expect(lastMessageOfType(aEvents, 'memberUpdate')).toMatchObject({
       type: 'memberUpdate',
