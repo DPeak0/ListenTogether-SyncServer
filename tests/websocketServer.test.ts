@@ -726,6 +726,97 @@ describe('websocketServer', () => {
     })
   })
 
+  it('keeps shared providers after the same member rejoins the room', () => {
+    const server = createSyncServer({
+      now: () => 1000,
+      emptyRoomTtlMs: 30 * 60 * 1000,
+      roomIdFactory: () => '12345678',
+      roomTokenFactory: () => 'token-abc',
+      roomTokenHasher: (token) => `hash:${token}`,
+    })
+
+    const ownerEvents = collectEvents()
+    const helperEvents = collectEvents()
+    const requesterEvents = collectEvents()
+
+    const owner = server.connect({
+      connectionId: 'conn-owner',
+      send: (message) => ownerEvents.push(message),
+    })
+    const helper = server.connect({
+      connectionId: 'conn-helper',
+      send: (message) => helperEvents.push(message),
+    })
+    const requester = server.connect({
+      connectionId: 'conn-requester',
+      send: (message) => requesterEvents.push(message),
+    })
+
+    owner.receive({
+      type: 'createRoom',
+      requestId: 'req-owner',
+      nickname: 'Alice',
+      deviceId: 'device-owner',
+      roomName: 'Alice Room',
+    })
+    helper.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper-1',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper',
+      deviceId: 'device-helper',
+    })
+    helper.receive({
+      type: 'shareCapabilitiesUpdate',
+      roomId: '12345678',
+      senderId: 'device-helper',
+      providers: ['netease'],
+    })
+    helper.receive({
+      type: 'joinRoom',
+      requestId: 'req-helper-2',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Helper',
+      deviceId: 'device-helper',
+    })
+    requester.receive({
+      type: 'joinRoom',
+      requestId: 'req-requester',
+      roomId: '12345678',
+      roomToken: 'token-abc',
+      nickname: 'Requester',
+      deviceId: 'device-requester',
+    })
+
+    requester.receive({
+      type: 'streamAssistRequest',
+      roomId: '12345678',
+      requestId: 'assist-rejoin',
+      senderId: 'device-requester',
+      provider: 'netease',
+      trackId: 'netrack_rejoin',
+      reason: 'trial',
+    })
+
+    expect(lastMessageOfType(helperEvents, 'streamAssistResolve')).toMatchObject({
+      type: 'streamAssistResolve',
+      requestId: 'assist-rejoin',
+      targetMemberId: 'device-helper',
+      provider: 'netease',
+    })
+    expect(lastMessageOfType(ownerEvents, 'memberUpdate')).toMatchObject({
+      type: 'memberUpdate',
+      members: expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: 'device-helper',
+          sharedProviders: ['netease'],
+        }),
+      ]),
+    })
+  })
+
   it('allows empty room token joins but still rejects wrong tokens and rate-limits repeated room entry attempts from the same source', () => {
     const server = createSyncServer({
       now: () => 1000,

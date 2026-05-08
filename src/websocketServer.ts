@@ -324,7 +324,10 @@ export function createSyncServer(options: SyncServerOptions) {
     if (!assigned) {
       const request = store.getAssistRequest(roomId, requestId)
       if (request) {
-        notifyAssistResult(roomId, request.requestId, request.requesterId, false, 'no-helper-succeeded')
+        const reason = request.attemptedMemberIds.length > 0
+          ? 'no-helper-succeeded'
+          : 'no-helper-available'
+        notifyAssistResult(roomId, request.requestId, request.requesterId, false, reason)
       }
       return
     }

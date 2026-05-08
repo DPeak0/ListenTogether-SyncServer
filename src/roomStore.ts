@@ -173,13 +173,17 @@ export function createRoomStore(options: RoomStoreOptions): RoomStore {
     const now = settings.now()
     const existingMember = record.room.members[input.deviceId]
     record.room.members[input.deviceId] = {
-      ...(existingMember ?? {}),
       ...createMember({
         deviceId: input.deviceId,
         nickname: input.nickname,
         now,
         isOwner: existingMember?.isOwner ?? false,
       }),
+      ...(existingMember ?? {}),
+      nickname: input.nickname,
+      online: true,
+      isOwner: existingMember?.isOwner ?? false,
+      lastSeenAt: now,
     }
     record.room.meta.updatedAt = now
     record.room.meta.expiresAt = null
